@@ -143,29 +143,29 @@ The benchmark provides an MCP (Model Context Protocol) toolbelt. Tools are stric
 We selected 5 of the most infamous concurrency and distributed systems outages that keep senior SREs up at night:
 
 ### 1. The Goroutine Deadlock (`scenario_1_goroutine_deadlock`)
-- **The Story**: A developer used unbuffered Go channels and circular locks inside the checkout worker routines.
-- **The Symptom**: Under live load, routines get stuck waiting for each other. `active_goroutines` explodes from 20 to over 10,000! CPU hits 100%, and P99 latency spikes past 3,000ms.
-- **The Solution**: Use `inspect_process` to read `pprof` stack traces, spot the blocked channel, buffer it with timeout propagation, and apply a hotfix.
+- A developer accidentally used unbuffered Go channels and circular locks inside the checkout worker routines.
+- Under live load, worker routines get stuck waiting on each other indefinitely. `active_goroutines` explodes from 20 to over 10,000, CPU maxes out at 100%, and P99 latency breaches 3,000ms.
+- The agent needs to use `inspect_process` to read `pprof` goroutine dumps, identify the blocked channel, buffer it with timeout context propagation, and apply a hotfix.
 
 ### 2. The Cascading Retry Storm (`scenario_2_cascading_retry_storm`)
-- **The Story**: An upstream payment service has a tiny 50ms hiccup. The caller immediately retries 5 times without any delay or jitter.
-- **The Symptom**: Traffic from users hasn't changed, but internal requests quadruple in seconds. The service accidentally DDoSes itself, and 5xx errors jump to 45%.
-- **The Solution**: Add exponential backoff with full decorrelated jitter and configure a circuit breaker.
+- An upstream payment service experiences a brief 50ms hiccup, causing callers to fire 5 aggressive immediate retries without backoff or jitter.
+- User traffic stays constant, but internal request volume quadruples within seconds, essentially DDoSing our own gateway and spiking 5xx errors to 45%.
+- Remediation requires implementing exponential backoff with decorrelated jitter and configuring a circuit breaker.
 
 ### 3. Database Connection Pool Exhaustion (`scenario_3_connection_pool_exhaustion`)
-- **The Story**: When a database query hits an error branch, the code exits early and forgets to call `defer conn.Close()`.
-- **The Symptom**: Every error leaks one connection. Within 45 seconds, all 50 database handles in the pool are locked. New requests hang for 5,000ms and fail with HTTP 504 Gateway Timeout.
-- **The Solution**: Locate the leaked handle in the transaction handler, add guaranteed `defer` releases, and drain leaked connections.
+- A transactional query encounters an error condition and returns early without calling `defer conn.Close()`.
+- Every failed query leaks an active database handle. Within 45 seconds, all 50 pool slots are exhausted, leaving new requests hanging for 5 seconds before returning HTTP 504 Gateway Timeouts.
+- The fix involves locating the unclosed connection handle in `handlers.go`, ensuring cleanup via `defer`, and draining stale pool handles.
 
 ### 4. Kernel Socket Packet Drops (`scenario_4_ebpf_socket_packet_drop`)
-- **The Story**: 25% of network packets get dropped on the virtual bridge interface between services. *(Emulated via socket-level fault injection for unprivileged container portability).*
-- **The Symptom**: Application logs look completely innocent (no crashes, no panics, no stack traces!). But TCP retransmissions go through the roof, and P99 latency degrades to over 1,200ms.
-- **The Solution**: Notice the TCP retransmit spike in telemetry, adjust TCP timeout settings, and re-route the socket interface.
+- 25% of network packets are dropped on the virtual bridge interface between microservices (emulated via socket-level fault injection for unprivileged container portability).
+- Application logs remain deceptively clean with zero crash traces or panics, but TCP retransmissions surge and P99 latency climbs beyond 1,200ms.
+- The agent must spot the TCP retransmit anomaly in Prometheus metrics, tune TCP connection timeouts, and reroute traffic around the degraded interface.
 
 ### 5. Redis Distributed Lock Split-Brain (`scenario_5_redis_lock_split_brain`)
-- **The Story**: A distributed lock lease TTL is set to 500ms, but slow checkout queries take 800ms to complete.
-- **The Symptom**: The lock expires while worker #1 is still processing. Worker #2 grabs the lock, and both workers write to the database at the same time. HTTP 409 Conflict errors spike.
-- **The Solution**: Implement a lease extension heartbeat (lock renewal) or add safety fencing tokens.
+- A distributed lock TTL is configured for 500ms, but checkout queries under load take 800ms to execute.
+- The lock lease expires while worker #1 is still mid-transaction. Worker #2 acquires the now-free lock, leading to concurrent mutations and a surge in HTTP 409 Conflict errors.
+- The agent must implement a lease extension heartbeat mechanism (lock renewal loop) or enforce monotonic fencing tokens to prevent dual writes.
 
 ---
 
