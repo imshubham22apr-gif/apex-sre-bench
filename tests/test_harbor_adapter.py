@@ -36,6 +36,50 @@ class TestMercorHarnessIntegration:
         assert "apply_hotfix" in tool_names
         assert "restart_service" in tool_names
         assert "generate_post_mortem" in tool_names
+        assert "apply_runtime_config" in tool_names
+        assert "submit_structured_rca" in tool_names
+
+    def test_mcp_server_runtime_config_and_rca_dispatch(self) -> None:
+        server = MCPServerStdio()
+
+        # Test apply_runtime_config dispatch
+        config_req = {
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {
+                "name": "apply_runtime_config",
+                "arguments": {
+                    "service_name": "api-gateway",
+                    "config_key": "timeout_seconds",
+                    "config_value": 5,
+                },
+            },
+        }
+        config_resp = server.handle_request(config_req)
+        assert config_resp["id"] == 10
+        assert config_resp["result"]["isError"] is False
+        assert "timeout_seconds" in config_resp["result"]["content"][0]["text"]
+
+        # Test submit_structured_rca dispatch
+        rca_req = {
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {
+                "name": "submit_structured_rca",
+                "arguments": {
+                    "root_cause_scenario": "scenario_1_goroutine_deadlock",
+                    "faulty_component": "checkout_worker",
+                    "contributing_factor": "unbuffered_channel_circular_lock",
+                    "remediation_applied": "buffered_channels_with_timeout",
+                },
+            },
+        }
+        rca_resp = server.handle_request(rca_req)
+        assert rca_resp["id"] == 11
+        assert rca_resp["result"]["isError"] is False
+        assert "accepted" in rca_resp["result"]["content"][0]["text"]
 
     def test_mcp_server_tool_dispatch_and_execution(self) -> None:
         server = MCPServerStdio()

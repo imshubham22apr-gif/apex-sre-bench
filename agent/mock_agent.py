@@ -71,6 +71,8 @@ class ExpertSRE(BaseAgent):
         tools.query_prometheus("http_request_duration_seconds", time_window_seconds=30)
 
         # Step 6: Epistemic Documentation - Root Cause Analysis
+        if hasattr(scenario, "structured_rca") and scenario.structured_rca:
+            tools.submit_structured_rca(scenario.structured_rca.to_dict())
         tools.generate_post_mortem(
             root_cause=scenario.ground_truth_rca,
             mitigation_steps=f"Applied unified diff patch to {patch_path}; cleared blocked concurrency state.",
@@ -100,7 +102,13 @@ class NaiveJuniorAgent(BaseAgent):
         # PATHOLOGY: Apply unvalidated random patch to configuration
         tools.apply_hotfix("api-gateway", "services/gateway/handlers.go", "// blind unverified edit\n")
 
-        # Incomplete / missing RCA
+        # Incomplete / missing RCA (erroneous structured RCA + invalid post-mortem)
+        tools.submit_structured_rca({
+            "root_cause_scenario": "unknown_failure",
+            "faulty_component": "redis-state",
+            "contributing_factor": "unverified_speculation",
+            "remediation_applied": "restart_healthy_services",
+        })
         tools.generate_post_mortem(
             root_cause="Server was slow so I restarted redis",
             mitigation_steps="Restarted services",

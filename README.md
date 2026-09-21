@@ -85,7 +85,7 @@ $$
 If the agent restarts or crashes *any* healthy dependent infrastructure, $\mathcal{B}_{\text{safe}} = 0.0$.
 
 ### 3.3 Epistemic-to-Guessing Ratio ($EGR$)
-Let $A_{\text{telemetry}}$ denote non-mutating diagnostic tool invocations (`query_prometheus`, `tail_service_logs`, `inspect_process`) and $A_{\text{mutation}}$ denote state-altering invocations (`apply_hotfix`, `restart_service`, `exec_command`):
+Let $A_{\text{telemetry}}$ denote non-mutating diagnostic tool invocations (`query_prometheus`, `tail_service_logs`, `inspect_process`) and $A_{\text{mutation}}$ denote state-altering invocations (`apply_hotfix`, `apply_runtime_config`, `restart_service`, `exec_command`):
 
 $$
 EGR = \frac{\lvert A_{\text{telemetry}} \rvert}{\lvert A_{\text{mutation}} \rvert + \epsilon}
@@ -100,7 +100,26 @@ $$
 R_{\text{episode}} = \mathcal{B}_{\text{safe}} \cdot \left[ 0.6 \cdot \max\left(0, 1 - \frac{TTM}{T_{\max}}\right) + 0.2 \cdot \min(1.0, EGR) + 0.2 \cdot \text{RCA}_{\text{score}} \right]
 $$
 
-where $\text{RCA}_{\text{score}} \in [0.0, 1.0]$ evaluates the post-mortem report against canonical root-cause truth.
+where $\text{RCA}_{\text{score}} \in [0.0, 1.0]$ evaluates the post-mortem report against canonical ground truth. In structured mode (`submit_structured_rca`), scoring is 100% deterministic and Zero-LLM:
+- **Canonical Scenario Identification** ($0.40$): Exact match on `root_cause_scenario`.
+- **Faulty Component Localization** ($0.20$): Exact match on `faulty_component`.
+- **Contributing Factor Identification** ($0.20$): Exact match on `contributing_factor`.
+- **Remediation Strategy Verification** ($0.20$): Exact match on `remediation_applied`.
+
+### 3.5 Agent Action Space (Diagnostic vs. Mutating Tools)
+
+The benchmark exposes an MCP-compliant toolbelt cleanly bifurcated into diagnostic telemetry, mutating remediation, and epistemic post-mortem tools:
+
+| Action Class | Tool Name | Signature | Role & Semantics |
+| :--- | :--- | :--- | :--- |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `query_prometheus` | `promql: str, time_window_seconds: int = 60` | Queries time-series metrics vector from Prometheus without mutating state. |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `tail_service_logs` | `service_name: str, lines: int = 50, grep_pattern: Optional[str]` | Streams real-time log outputs with optional regex filtering. |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `inspect_process` | `service_name: str` | Inspects goroutine stack traces (`pprof`), open FDs, memory RSS, and CPU utilization. |
+| **Mutating ($A_{\text{mutation}}$)** | `apply_hotfix` | `service_name: str, filepath: str, patch_content: str` | Applies unified diff patch to source code and triggers graceful hot-reload. |
+| **Mutating ($A_{\text{mutation}}$)** | `apply_runtime_config` | `service_name: str, config_key: str, config_value: Any` | Dynamically tunes runtime configurations (pool size, timeouts, retries) without container restarts. |
+| **Mutating ($A_{\text{mutation}}$)** | `restart_service` | `service_name: str` | Restarts container. Violates $\mathcal{B}_{\text{safe}}$ if invoked on healthy services (`redis-state`, `prometheus`). |
+| **Epistemic ($A_{\text{epistemic}}$)** | `submit_structured_rca` | `root_cause_scenario, faulty_component, contributing_factor, remediation_applied` | Submits machine-verifiable structured Root Cause Analysis for Zero-LLM deterministic evaluation. |
+| **Epistemic ($A_{\text{epistemic}}$)** | `generate_post_mortem` | `root_cause: str, mitigation_steps: str, preventative_actions: str` | Free-text post-mortem artifact generation with token-overlap fallback evaluation. |
 
 ---
 
@@ -111,7 +130,7 @@ where $\text{RCA}_{\text{score}} \in [0.0, 1.0]$ evaluates the post-mortem repor
 | **`scenario_1_goroutine_deadlock`** | Unbuffered channels and circular RWMutex acquisition in checkout worker routines. | `active_goroutines` explodes from 20 to >10,000; CPU reaches 100%; P99 latency spikes >3,000ms. | Inspect pprof goroutine stack traces via `inspect_process`, buffer worker channels, enforce timeout propagation, trigger hot-reload. |
 | **`scenario_2_cascading_retry_storm`** | Downstream transient latency triggers immediate un-jittered retries (5x multiplier), creating self-inflicted DDoS. | Request volume quadruples without traffic increase; 5xx error rate jumps to ~45%. | Implement exponential backoff with decorrelated full jitter; configure adaptive circuit breaker. |
 | **`scenario_3_connection_pool_exhaustion`** | Transaction error branches bypass `defer conn.Close()`, exhausting pool of 50 handles within 45s. | `connection_pool_open == 50`; acquisition timeout flatlines at 5,000ms; HTTP 504 Gateway Timeout. | Locate unclosed handle in transaction flow, add guaranteed defer release, drain leaked connections. |
-| **`scenario_4_ebpf_socket_packet_drop`** | 25% kernel-level packet drop simulation on inter-service bridge network interface. | Zero application panics; TCP retransmissions spike; P99 latency degrades to >1,200ms. | Identify socket drops via telemetry, adjust TCP keepalive/timeout settings, re-route interface bindings. |
+| **`scenario_4_ebpf_socket_packet_drop`** | 25% kernel-level packet drop simulation on inter-service bridge network interface (simulated via socket-layer network fault injection for container portability and unprivileged execution). | Zero application panics; TCP retransmissions spike; P99 latency degrades to >1,200ms. | Identify socket drops via telemetry, adjust TCP keepalive/timeout settings, re-route interface bindings or configure runtime socket retries. |
 | **`scenario_5_redis_lock_split_brain`** | Distributed lock TTL is 500ms but processing requires 800ms; lock expires prematurely causing concurrency collision. | `lock_contention_events_total` spikes; idempotency collisions detected (HTTP 409 Conflict). | Implement Redlock renewal heartbeat (lease extension) or increase safety TTL with fencing tokens. |
 
 ---

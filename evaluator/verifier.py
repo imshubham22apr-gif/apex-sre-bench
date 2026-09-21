@@ -106,9 +106,12 @@ class DeterministicStateOracle:
                 ttm = self.t_max
 
         # 4. Evaluate Root Cause Analysis (RCA) score
+        structured_spec = getattr(scenario, "structured_rca", None) if scenario else None
+        rca_artifact = getattr(tool_env, "structured_rca_artifact", None) or tool_env.post_mortem_artifact
         rca_score = evaluate_rca_score(
-            tool_env.post_mortem_artifact,
-            ground_truth_rca,
+            post_mortem=rca_artifact,
+            ground_truth_rca=ground_truth_rca,
+            structured_spec=structured_spec,
         )
 
         # 5. Compute Normalized Episode Reward
@@ -128,6 +131,7 @@ class DeterministicStateOracle:
             "remediation_applied": tool_env.simulated_context.get("remediation_applied", False),
             "total_tool_invocations": len(tool_env.call_history),
             "post_mortem_recorded": tool_env.post_mortem_artifact is not None,
+            "structured_rca_recorded": getattr(tool_env, "structured_rca_artifact", None) is not None,
         }
 
         report = EpisodeScoreReport(

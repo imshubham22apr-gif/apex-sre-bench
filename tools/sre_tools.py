@@ -39,7 +39,7 @@ class SREToolEnvironment:
     """
 
     TELEMETRY_TOOLS = {"query_prometheus", "tail_service_logs", "inspect_process"}
-    MUTATION_TOOLS = {"apply_hotfix", "restart_service", "exec_command"}
+    MUTATION_TOOLS = {"apply_hotfix", "restart_service", "apply_runtime_config", "exec_command"}
 
     _docker_checked: bool = False
     _docker_available: bool = False
@@ -64,6 +64,7 @@ class SREToolEnvironment:
         }
         self.simulated_context: Dict[str, Any] = simulated_context or {}
         self.post_mortem_artifact: Optional[Dict[str, str]] = None
+        self.structured_rca_artifact: Optional[Dict[str, str]] = None
 
     @classmethod
     def _is_docker_available(cls) -> bool:
@@ -260,6 +261,47 @@ class SREToolEnvironment:
         self.record_call("restart_service", {"service_name": service_name}, result)
         return result
 
+    def apply_runtime_config(
+        self,
+        service_name: str,
+        config_key: str,
+        config_value: Any,
+    ) -> Dict[str, Any]:
+        """
+        Dynamically applies runtime configuration parameters (timeouts, pool size, retry policies, flags)
+        to a running service without requiring container restarts.
+        MCP tool: mutating action.
+        """
+        if not service_name or not config_key:
+            raise ValueError("service_name and config_key must be non-empty strings")
+
+        logger.warning(
+            "MUTATION ACTION: apply_runtime_config called for %s [%s=%s]",
+            service_name,
+            config_key,
+            config_value,
+        )
+
+        # Record runtime configuration state change
+        runtime_configs = self.simulated_context.setdefault("runtime_configs", {})
+        runtime_configs[f"{service_name}:{config_key}"] = config_value
+        self.simulated_context["remediation_applied"] = True
+
+        result = {
+            "service": service_name,
+            "config_key": config_key,
+            "config_value": config_value,
+            "success": True,
+            "message": f"Runtime configuration '{config_key}' updated for '{service_name}'. Hot-reloaded.",
+            "timestamp": time.time(),
+        }
+        self.record_call(
+            "apply_runtime_config",
+            {"service_name": service_name, "config_key": config_key, "config_value": config_value},
+            result,
+        )
+        return result
+
     def generate_post_mortem(
         self,
         root_cause: str,
@@ -280,6 +322,33 @@ class SREToolEnvironment:
         self.record_call("generate_post_mortem", artifact, "RCA artifact accepted.")
         logger.info("Post-mortem artifact recorded successfully.")
         return "Post-mortem artifact recorded successfully."
+
+    def submit_structured_rca(self, rca_report: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Submits structured post-mortem Root Cause Analysis (RCA) artifact for deterministic Zero-LLM evaluation.
+        Expected schema:
+          - root_cause_scenario: str
+          - faulty_component: str
+          - contributing_factor: str
+          - remediation_applied: str
+        MCP tool: epistemic documentation.
+        """
+        cleaned_report = {
+            "root_cause_scenario": str(rca_report.get("root_cause_scenario", "")).strip(),
+            "faulty_component": str(rca_report.get("faulty_component", "")).strip(),
+            "contributing_factor": str(rca_report.get("contributing_factor", "")).strip(),
+            "remediation_applied": str(rca_report.get("remediation_applied", "")).strip(),
+            "timestamp": time.time(),
+        }
+        self.structured_rca_artifact = cleaned_report
+        self.post_mortem_artifact = cleaned_report
+        self.record_call("submit_structured_rca", cleaned_report, "Structured RCA artifact accepted.")
+        logger.info("Structured RCA artifact recorded successfully.")
+        return {
+            "status": "accepted",
+            "message": "Structured RCA artifact accepted.",
+            "rca": cleaned_report,
+        }
 
     def _generate_simulated_promql(self, promql: str, time_window_seconds: int) -> Dict[str, Any]:
         """Generates realistic simulated Prometheus metrics based on active scenario."""

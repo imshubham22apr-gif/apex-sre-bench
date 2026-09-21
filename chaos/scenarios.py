@@ -6,8 +6,20 @@ cloud outages, detailing failure mechanisms, telemetry manifestations,
 and mathematically verifiable remediation baselines.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional
+
+
+@dataclass(frozen=True)
+class StructuredRCASpec:
+    """Deterministic, uncheatable ground-truth specification for Root Cause Analysis."""
+    root_cause_scenario: str
+    faulty_component: str
+    contributing_factor: str
+    remediation_applied: str
+
+    def to_dict(self) -> Dict[str, str]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -26,6 +38,7 @@ class ChaosScenario:
     expected_contention: int
     ground_truth_rca: str
     remediation_patch: str
+    structured_rca: StructuredRCASpec
 
 
 SCENARIO_1_GOROUTINE_DEADLOCK = ChaosScenario(
@@ -60,6 +73,12 @@ SCENARIO_1_GOROUTINE_DEADLOCK = ChaosScenario(
         "@@ -102,7 +102,7 @@ func (s *Server) executeDeadlockScenario(ctx context.Context) (int, string) {\n"
         "-	blocker := make(chan struct{})\n"
         "+	blocker := make(chan struct{}, 25)\n"
+    ),
+    structured_rca=StructuredRCASpec(
+        root_cause_scenario="scenario_1_goroutine_deadlock",
+        faulty_component="checkout_worker",
+        contributing_factor="unbuffered_channel_circular_lock",
+        remediation_applied="buffered_channels_with_timeout",
     ),
 )
 
@@ -97,6 +116,12 @@ SCENARIO_2_CASCADING_RETRY_STORM = ChaosScenario(
         "+	// Apply exponential backoff with full jitter\n"
         "+	for attempt := 1; attempt <= 2; attempt++ {\n"
     ),
+    structured_rca=StructuredRCASpec(
+        root_cause_scenario="scenario_2_cascading_retry_storm",
+        faulty_component="upstream_payment_client",
+        contributing_factor="unjittered_aggressive_retries",
+        remediation_applied="exponential_backoff_with_full_jitter",
+    ),
 )
 
 SCENARIO_3_CONNECTION_POOL_EXHAUSTION = ChaosScenario(
@@ -132,6 +157,12 @@ SCENARIO_3_CONNECTION_POOL_EXHAUSTION = ChaosScenario(
         "-	// LEAK: Do not release back to s.dbPool\n"
         "+	defer func() { <-s.dbPool }()\n"
     ),
+    structured_rca=StructuredRCASpec(
+        root_cause_scenario="scenario_3_connection_pool_exhaustion",
+        faulty_component="db_connection_pool",
+        contributing_factor="unreleased_handles_on_error_path",
+        remediation_applied="guaranteed_defer_release",
+    ),
 )
 
 SCENARIO_4_EBPF_SOCKET_PACKET_DROP = ChaosScenario(
@@ -139,7 +170,7 @@ SCENARIO_4_EBPF_SOCKET_PACKET_DROP = ChaosScenario(
     title="Simulated Kernel/Socket Packet Drop & TCP Retransmit Storm",
     failure_mechanism=(
         "Simulates 25% kernel-level packet drop on the bridge/loopback network interface, causing repeated "
-        "TCP retransmissions and degraded socket throughput."
+        "TCP retransmissions and degraded socket throughput (simulated via socket layer network fault injection)."
     ),
     telemetry_manifestation=(
         "Application error logs remain silent (no panics), but TCP retransmissions spike, P99 latency degrades "
@@ -166,6 +197,12 @@ SCENARIO_4_EBPF_SOCKET_PACKET_DROP = ChaosScenario(
         "@@ -185,5 +185,3 @@ func (s *Server) executePacketDropScenario(ctx context.Context) {\n"
         "-	if rand.Float64() < 0.25 {\n"
         "+	if false {\n"
+    ),
+    structured_rca=StructuredRCASpec(
+        root_cause_scenario="scenario_4_ebpf_socket_packet_drop",
+        faulty_component="network_bridge_socket",
+        contributing_factor="inter_service_packet_drop_tcp_retransmit",
+        remediation_applied="tcp_timeout_tuning_and_reroute",
     ),
 )
 
@@ -202,6 +239,12 @@ SCENARIO_5_REDIS_LOCK_SPLIT_BRAIN = ChaosScenario(
         "@@ -205,5 +205,5 @@ func (s *Server) executeSplitBrainScenario(ctx context.Context) {\n"
         "-	// Hold processing for 800ms exceeding 500ms TTL\n"
         "+	// Ensure lease extension heartbeat or fast execution\n"
+    ),
+    structured_rca=StructuredRCASpec(
+        root_cause_scenario="scenario_5_redis_lock_split_brain",
+        faulty_component="distributed_lock_manager",
+        contributing_factor="premature_lease_expiration_vs_processing_latency",
+        remediation_applied="lease_extension_heartbeat_or_fencing_token",
     ),
 )
 

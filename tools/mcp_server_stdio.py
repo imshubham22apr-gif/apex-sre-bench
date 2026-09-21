@@ -124,6 +124,38 @@ class MCPServerStdio:
                     "required": ["root_cause", "mitigation_steps", "preventative_actions"],
                 },
             },
+            {
+                "name": "apply_runtime_config",
+                "description": "Apply dynamic runtime configuration parameters (timeouts, pool size, retry policies, flags) to a service without full container restart.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "service_name": {"type": "string", "description": "Target service"},
+                        "config_key": {"type": "string", "description": "Configuration parameter key name"},
+                        "config_value": {"description": "Configuration value (string, integer, boolean, or object)"},
+                    },
+                    "required": ["service_name", "config_key", "config_value"],
+                },
+            },
+            {
+                "name": "submit_structured_rca",
+                "description": "Submit a structured Root Cause Analysis (RCA) artifact for deterministic Zero-LLM evaluation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root_cause_scenario": {"type": "string", "description": "Canonical scenario identifier"},
+                        "faulty_component": {"type": "string", "description": "Exact component or subsystem at fault"},
+                        "contributing_factor": {"type": "string", "description": "Technical contributing factor or mechanism"},
+                        "remediation_applied": {"type": "string", "description": "Remediation strategy applied to resolve"},
+                    },
+                    "required": [
+                        "root_cause_scenario",
+                        "faulty_component",
+                        "contributing_factor",
+                        "remediation_applied",
+                    ],
+                },
+            },
         ]
 
     def handle_request(self, req: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,6 +246,16 @@ class MCPServerStdio:
                 mitigation_steps=args["mitigation_steps"],
                 preventative_actions=args["preventative_actions"],
             )
+        elif name == "apply_runtime_config":
+            return self.tool_env.apply_runtime_config(
+                service_name=args["service_name"],
+                config_key=args["config_key"],
+                config_value=args["config_value"],
+            )
+        elif name == "submit_structured_rca":
+            if "rca_report" in args and isinstance(args["rca_report"], dict):
+                return self.tool_env.submit_structured_rca(args["rca_report"])
+            return self.tool_env.submit_structured_rca(args)
         else:
             raise ValueError(f"Unknown MCP tool: {name}")
 

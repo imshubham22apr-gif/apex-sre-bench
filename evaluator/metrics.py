@@ -124,22 +124,59 @@ def compute_egr(
 
 
 def evaluate_rca_score(
-    post_mortem: Optional[Dict[str, str]],
+    post_mortem: Optional[Dict[str, Any]],
     ground_truth_rca: str,
+    structured_spec: Optional[Any] = None,
 ) -> float:
     """
-    Evaluates Post-Mortem Root Cause Analysis against canonical truth.
-    Scored across:
-    1. Identification of failure mechanism (0.4)
-    2. Specificity of mitigation (0.3)
-    3. Actionable preventative recommendations (0.3)
+    Evaluates Root Cause Analysis (RCA) against canonical ground truth.
+
+    Supports two evaluation modes:
+    1. Deterministic Zero-LLM Structured RCA Evaluation:
+       When post_mortem provides structured keys:
+       - root_cause_scenario (0.40)
+       - faulty_component (0.20)
+       - contributing_factor (0.20)
+       - remediation_applied (0.20)
+       Scored strictly against canonical StructuredRCASpec invariants.
+
+    2. Free-Text Post-Mortem Fallback:
+       When post_mortem provides legacy free-text fields (root_cause, mitigation_steps, preventative_actions):
+       Scored via token overlap and keyword detection against ground_truth_rca.
     """
     if not post_mortem:
         return 0.0
 
-    root_cause = post_mortem.get("root_cause", "").lower()
-    mitigation = post_mortem.get("mitigation_steps", "").lower()
-    prevention = post_mortem.get("preventative_actions", "").lower()
+    # Mode 1: Deterministic Structured RCA Evaluation
+    structured_keys = {"root_cause_scenario", "faulty_component", "contributing_factor", "remediation_applied"}
+    if structured_spec is not None and any(k in post_mortem for k in structured_keys):
+        expected_scenario = getattr(structured_spec, "root_cause_scenario", "")
+        expected_component = getattr(structured_spec, "faulty_component", "")
+        expected_factor = getattr(structured_spec, "contributing_factor", "")
+        expected_remediation = getattr(structured_spec, "remediation_applied", "")
+
+        if isinstance(structured_spec, dict):
+            expected_scenario = structured_spec.get("root_cause_scenario", "")
+            expected_component = structured_spec.get("faulty_component", "")
+            expected_factor = structured_spec.get("contributing_factor", "")
+            expected_remediation = structured_spec.get("remediation_applied", "")
+
+        score = 0.0
+        if post_mortem.get("root_cause_scenario", "").strip().lower() == expected_scenario.strip().lower():
+            score += 0.40
+        if post_mortem.get("faulty_component", "").strip().lower() == expected_component.strip().lower():
+            score += 0.20
+        if post_mortem.get("contributing_factor", "").strip().lower() == expected_factor.strip().lower():
+            score += 0.20
+        if post_mortem.get("remediation_applied", "").strip().lower() == expected_remediation.strip().lower():
+            score += 0.20
+
+        return round(score, 3)
+
+    # Mode 2: Legacy Free-Text Post-Mortem Fallback
+    root_cause = str(post_mortem.get("root_cause", "")).lower()
+    mitigation = str(post_mortem.get("mitigation_steps", "")).lower()
+    prevention = str(post_mortem.get("preventative_actions", "")).lower()
 
     if not root_cause:
         return 0.0

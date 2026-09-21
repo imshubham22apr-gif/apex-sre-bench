@@ -5,6 +5,7 @@ Test Suite: Deterministic State Oracle & Invariant Verification.
 import time
 import pytest
 
+from chaos.scenarios import StructuredRCASpec, get_scenario_by_id
 from evaluator.metrics import (
     compute_blast_radius_safety,
     compute_egr,
@@ -98,6 +99,61 @@ class TestVerifierMetrics:
         score_poor = evaluate_rca_score(poor_pm, truth)
         assert score_poor < 0.40
 
+    def test_structured_rca_scoring_exact_match(self) -> None:
+        spec = StructuredRCASpec(
+            root_cause_scenario="scenario_1_goroutine_deadlock",
+            faulty_component="checkout_worker",
+            contributing_factor="unbuffered_channel_circular_lock",
+            remediation_applied="buffered_channels_with_timeout",
+        )
+        report = {
+            "root_cause_scenario": "scenario_1_goroutine_deadlock",
+            "faulty_component": "checkout_worker",
+            "contributing_factor": "unbuffered_channel_circular_lock",
+            "remediation_applied": "buffered_channels_with_timeout",
+        }
+        score = evaluate_rca_score(report, ground_truth_rca="", structured_spec=spec)
+        assert score == 1.0
+
+    def test_structured_rca_scoring_partial_and_zero(self) -> None:
+        spec = StructuredRCASpec(
+            root_cause_scenario="scenario_2_cascading_retry_storm",
+            faulty_component="upstream_payment_client",
+            contributing_factor="unjittered_aggressive_retries",
+            remediation_applied="exponential_backoff_with_full_jitter",
+        )
+        # Partial: scenario (0.40) + component (0.20) correct, others wrong
+        partial_report = {
+            "root_cause_scenario": "scenario_2_cascading_retry_storm",
+            "faulty_component": "upstream_payment_client",
+            "contributing_factor": "wrong_factor",
+            "remediation_applied": "restart_everything",
+        }
+        score_partial = evaluate_rca_score(partial_report, ground_truth_rca="", structured_spec=spec)
+        assert score_partial == pytest.approx(0.60, abs=1e-3)
+
+        # Zero: all fields wrong
+        zero_report = {
+            "root_cause_scenario": "random_failure",
+            "faulty_component": "redis-state",
+            "contributing_factor": "bad_luck",
+            "remediation_applied": "none",
+        }
+        score_zero = evaluate_rca_score(zero_report, ground_truth_rca="", structured_spec=spec)
+        assert score_zero == 0.0
+
+    def test_apply_runtime_config_mutation_accounting(self) -> None:
+        tool_env = SREToolEnvironment()
+        tool_env.query_prometheus("active_goroutines")
+        tool_env.apply_runtime_config("api-gateway", "worker_channel_capacity", 50)
+
+        # 1 telemetry call, 1 mutation call
+        telemetry_calls = sum(1 for c in tool_env.call_history if c.is_telemetry)
+        mutation_calls = sum(1 for c in tool_env.call_history if c.is_mutation)
+        assert telemetry_calls == 1
+        assert mutation_calls == 1
+        assert tool_env.simulated_context.get("remediation_applied") is True
+
     def test_oracle_full_episode_evaluation(self) -> None:
         oracle = DeterministicStateOracle(t_max=600.0, delta_tau=30.0)
         tool_env = SREToolEnvironment()
@@ -108,11 +164,10 @@ class TestVerifierMetrics:
         tool_env.inspect_process("api-gateway")
         tool_env.tail_service_logs("api-gateway")
         tool_env.apply_hotfix("api-gateway", "services/gateway/handlers.go", "patch")
-        tool_env.generate_post_mortem(
-            root_cause="unbuffered channels with circular wait goroutine leak",
-            mitigation_steps="Buffered channel and added timeout guards",
-            preventative_actions="Added static concurrency analysis in CI",
-        )
+        
+        scenario = get_scenario_by_id("scenario_1_goroutine_deadlock")
+        assert scenario is not None
+        tool_env.submit_structured_rca(scenario.structured_rca.to_dict())
 
         t_chaos = time.time() - 30.0
         report = oracle.evaluate_episode(
@@ -125,4 +180,6 @@ class TestVerifierMetrics:
         assert report.passed is True
         assert report.blast_radius_safe == 1.0
         assert report.time_to_mitigation_seconds == 25.0
+        assert report.rca_score == 1.0
+        assert report.details["structured_rca_recorded"] is True
         assert report.episode_reward >= 0.90
