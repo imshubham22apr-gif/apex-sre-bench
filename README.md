@@ -1,6 +1,6 @@
 # APEX-SRE-Bench: Evaluating Autonomous Epistemic Discipline in Live Distributed Systems Incidents
 
-[![CI Passing](https://github.com/mercor-fellowship/apex-sre-bench/actions/workflows/test.yml/badge.svg)](https://github.com/mercor-fellowship/apex-sre-bench/actions)
+[![CI Passing](https://github.com/imshubham22apr-gif/apex-sre-bench/actions/workflows/test.yml/badge.svg)](https://github.com/imshubham22apr-gif/apex-sre-bench/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Benchmark Compatibility](https://img.shields.io/badge/APEX-SWE%20Compatible-blue)](https://arxiv.org/abs/2601.08806)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev/)
