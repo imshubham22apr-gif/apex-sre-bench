@@ -193,14 +193,16 @@ We tested calibrated mock personas, human senior SREs, and frontier LLMs across 
 You don't need a huge Kubernetes cluster or running Docker daemon to explore this benchmark. The offline evaluation engine runs anywhere with Python 3.11+.
 
 ### Step 1: Install Dependencies
+You can install dependencies directly or install the benchmark package in editable mode:
 ```bash
 git clone https://github.com/imshubham22apr-gif/apex-sre-bench.git
 cd apex-sre-bench
-pip install -r requirements.txt
+pip install -e .
 ```
+This registers the `apex-sre` and `apex-sre-bench` CLI commands directly into your environment.
 
 ### Step 2: Run the Verification Test Suite
-Run all 29 automated tests (runs 100% offline in under 3 seconds):
+Run all 33 automated tests (runs 100% offline in under 3 seconds):
 ```bash
 python -m pytest tests/ -v
 ```
@@ -209,45 +211,65 @@ python -m pytest tests/ -v
 
 See how a disciplined agent behaves by running the calibrated **Expert SRE** persona:
 ```bash
-python -m agent.eval_runner --scenario all --mode mock --agent expert
+apex-sre --scenario all --mode mock --agent expert
 ```
-*(Notice how it inspects Prometheus metrics first, checks logs, applies a surgical hotfix, submits a structured RCA, and achieves a 100% pass rate with $>0.98$ reward).*
+*(Notice how it inspects Prometheus metrics first, checks logs, applies a surgical hotfix, submits a structured RCA, and achieves a 100% pass rate with >0.98 reward).*
 
 Now watch what happens when an undisciplined agent runs (**Naive Junior Agent**):
 ```bash
-python -m agent.eval_runner --scenario all --mode mock --agent naive
+apex-sre --scenario all --mode mock --agent naive
 ```
 *(Notice how it immediately restarts Redis and Prometheus, triggering an instant Blast Radius breach and scoring 0.0).*
 
 You can also run any single scenario:
 ```bash
-python -m agent.eval_runner --scenario scenario_1_goroutine_deadlock --mode mock
+apex-sre --scenario scenario_1_goroutine_deadlock --mode mock
 ```
 
-### Step 4: Export RL Trajectory Datasets for SkyRL Fine-Tuning
+### Step 4: Evaluate Real Frontier Models Live (`--mode live`)
+Connect real frontier AI models directly to the benchmark using your API keys. The benchmark supports OpenAI, Anthropic Claude, Google Gemini, and any OpenAI-compatible API endpoint:
+
+```bash
+# Evaluate Claude 3.5 Sonnet
+export ANTHROPIC_API_KEY="your-anthropic-key"
+apex-sre --scenario scenario_1_goroutine_deadlock --mode live --model claude-3-5-sonnet
+
+# Evaluate GPT-4o
+export OPENAI_API_KEY="your-openai-key"
+apex-sre --scenario all --mode live --model gpt-4o
+
+# Evaluate Google Gemini 1.5 Pro
+export GEMINI_API_KEY="your-gemini-key"
+apex-sre --scenario scenario_2_cascading_retry_storm --mode live --model gemini-1.5-pro
+
+# Evaluate Local / OpenRouter Models (Ollama, vLLM, DeepSeek)
+apex-sre --scenario all --mode live --model deepseek-chat --base-url https://api.deepseek.com/v1 --api-key your-key
+```
+
+### Step 5: Export RL Trajectory Datasets for SkyRL Fine-Tuning
 Want to train models to stop guessing and behave like seasoned SREs? You can dump full multi-turn interaction trajectories (including Prometheus alerts, step rewards, diagnostic tool calls, and post-mortems) into RL training-ready JSONL:
 ```bash
 # Export expert trajectories (100% pass rate, high epistemic ratio)
-python -m agent.eval_runner --scenario all --mode mock --agent expert --export-traces
+apex-sre --scenario all --mode mock --agent expert --export-traces
 
 # Export naive trajectories (showing blast-radius breaches and zero rewards)
-python -m agent.eval_runner --scenario all --mode mock --agent naive --export-traces
+apex-sre --scenario all --mode mock --agent naive --export-traces
 ```
 This generates `results/traces/skyrl_expert_traces.jsonl` and `results/traces/skyrl_naive_traces.jsonl` formatted directly for **ApexAgents-SkyRL-Recipe** reinforcement learning pipelines.
 
-### Step 5: Run via Mercor Harbor Runner
+### Step 6: Run via Mercor Harbor Runner
 The benchmark includes a built-in CLI adapter for Mercor's Harbor harness:
 ```bash
 python -m adapters.stirrup_adapter --scenario scenario_1_goroutine_deadlock --mode expert
 ```
 
-### Step 6: Launch the Standalone MCP stdio Server
+### Step 7: Launch the Standalone MCP stdio Server
 To connect external autonomous agents (such as Cursor, Windsurf, Claude Code, or Mercor Archipelago):
 ```bash
 python -m tools.mcp_server_stdio
 ```
 
-### Step 7: Run Live in Docker & Generate Traffic
+### Step 8: Run Live in Docker & Generate Traffic
 If you want to spin up the full live container environment:
 ```bash
 docker compose up -d --build

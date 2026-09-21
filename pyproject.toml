@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apex-sre-bench"
+version = "1.0.0"
+description = "Autonomous SRE & Distributed Systems Incident Evaluation Benchmark for Frontier AI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Mercor Research Fellows & APEX Evaluation Working Group" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "pytest>=8.0.0",
+    "tabulate>=0.9.0",
+    "prometheus-client>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.scripts]
+apex-sre = "agent.eval_runner:run_cli"
+apex-sre-bench = "agent.eval_runner:run_cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adapters*", "agent*", "chaos*", "evaluator*", "tools*", "traffic*"]

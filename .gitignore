@@ -5,7 +5,7 @@
 *.so
 *.dylib
 bin/
-gateway
+/gateway
 
 # Go
 go.work

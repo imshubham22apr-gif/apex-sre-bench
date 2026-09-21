@@ -252,9 +252,9 @@ class MCPServerStdio:
             return self.tool_env.restart_service(service_name=args["service_name"])
         elif name == "generate_post_mortem":
             return self.tool_env.generate_post_mortem(
-                root_cause=args["root_cause"],
-                mitigation_steps=args["mitigation_steps"],
-                preventative_actions=args["preventative_actions"],
+                root_cause=args.get("root_cause", ""),
+                mitigation_steps=args.get("mitigation_steps", args.get("actions_taken", "")),
+                preventative_actions=args.get("preventative_actions", "monitor"),
             )
         elif name == "apply_runtime_config":
             return self.tool_env.apply_runtime_config(

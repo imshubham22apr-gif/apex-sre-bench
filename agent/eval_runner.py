@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from tabulate import tabulate
 
+from agent.live_agent import LiveLLMAgent
 from agent.mock_agent import BaseAgent, ExpertSRE, NaiveJuniorAgent
 from chaos.scenarios import CANONICAL_SCENARIOS, ChaosScenario, get_all_scenarios, get_scenario_by_id
 from evaluator.metrics import EpisodeScoreReport
@@ -193,6 +194,18 @@ def run_cli() -> None:
         default=None,
         help="Explicit file path for SkyRL JSONL trajectory dataset export",
     )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="API key for live model evaluation (defaults to OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY)",
+    )
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="Custom base URL for OpenAI-compatible endpoint (e.g. Ollama, OpenRouter, vLLM)",
+    )
 
     args = parser.parse_args()
 
@@ -208,11 +221,20 @@ def run_cli() -> None:
 
     # Select agent
     agent: BaseAgent
-    agent_name = args.model if args.model else ("ExpertSRE" if args.agent == "expert" else "NaiveJuniorAgent")
-    if args.agent == "naive":
+    if args.mode == "live":
+        model_name = args.model or "gpt-4o"
+        agent = LiveLLMAgent(
+            model=model_name,
+            api_key=args.api_key,
+            base_url=args.base_url,
+        )
+        agent_name = model_name
+    elif args.agent == "naive":
         agent = NaiveJuniorAgent()
+        agent_name = "NaiveJuniorAgent"
     else:
         agent = ExpertSRE()
+        agent_name = args.model if args.model else "ExpertSRE"
 
     runner = EvaluationRunner()
     reports = runner.run_suite(scenarios, agent)
