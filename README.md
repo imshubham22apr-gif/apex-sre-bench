@@ -16,32 +16,31 @@ This failure stems from a fundamental breakdown in **epistemic discipline**: the
 
 `apex-sre-bench` is a production-grade, reproducible evaluation benchmark engineered for the **Mercor Research Fellowship (APEX Benchmark Track)**. It benchmarks autonomous agents against 5 canonical, high-stakes distributed failure modes in containerized Go/Redis/Prometheus microservice topologies under live synthetic traffic, scoring models via a deterministic Zero-LLM state oracle.
 
-```
-                                  ┌───────────────────────────────┐
-                                  │      Continuous Traffic       │
-                                  │   (50-100 req/s, /checkout)   │
-                                  └───────────────┬───────────────┘
-                                                  │
-                                                  ▼
-┌──────────────────┐  PromQL Scrape (1s)  ┌───────────────┐  Lock / Cache  ┌──────────────────┐
-│    Prometheus    │ ◄─────────────────── │  api-gateway  │ ─────────────► │   redis-state    │
-│     (:9090)      │                      │  (Go 1.22+)   │                │     (:6379)      │
-└─────────┬────────┘                      └───────┬───────┘                └─────────┬────────┘
-          │                                       │                                  │
-          │ Telemetry Queries                     │ Hotfix / Patch                   │ Restart Audit
-          ▼                                       ▼                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-│                             Autonomous SRE Evaluation Agent                                 │
-│                   (Model Context Protocol / Mercor Archipelago Tools)                       │
-└─────────────────────────────────────────┬───────────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-│                          Deterministic State Oracle (Zero-LLM)                              │
-│       - Sustained Stabilization: ErrorRate < 0.001 & P99 <= 250ms for Δτ = 30s              │
-│       - Blast-Radius Invariance: Healthy Service Restarts == 0                              │
-│       - Epistemic-to-Guessing Ratio (EGR) & RCA Score                                       │
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph Ingress ["Traffic Ingestion"]
+        traffic["Continuous Synthetic Traffic<br/>(50-100 req/s to /checkout & /healthz)"]
+    end
+
+    subgraph Cluster ["Containerized Incident Topology"]
+        gateway["api-gateway (Go 1.22+)<br/>HTTP :8080 | Metrics :2112"]
+        redis[("redis-state (Redis 7)<br/>State & Locks :6379")]
+        prom["Prometheus Server<br/>1s Scrape Interval :9090"]
+    end
+
+    subgraph AgentHarness ["Mercor Intelligence Harness"]
+        agent["Autonomous SRE Agent<br/>(Archipelago Tools / Harbor Adapter)"]
+        oracle["Deterministic State Oracle<br/>(TTM, B_safe, EGR, R_episode)"]
+    end
+
+    traffic -->|"HTTP Requests"| gateway
+    gateway <-->|"Idempotency & Locks"| redis
+    prom -->|"Scrape /metrics"| gateway
+
+    agent <-->|"1. PromQL Telemetry & Logs"| prom
+    agent <-->|"2. Inspect Process & Apply Hotfix"| gateway
+    agent -.->|"3. Invariance Blast-Radius Audit"| redis
+    agent -->|"4. Post-Mortem RCA Artifact"| oracle
 ```
 
 ---
@@ -63,7 +62,9 @@ Each evaluation episode runs for a bounded duration $T_{\max} = 600\text{s}$ und
 ### 3.1 Time-to-Mitigation ($TTM$)
 The elapsed wall-clock duration from chaos injection $t_{\text{chaos}}$ until the cluster maintains sustained SLA compliance:
 
-$$TTM = \min \left\{ t \in [t_{\text{chaos}}, T_{\max}] \mid \forall t' \in [t, t + \Delta \tau], \, \text{ErrorRate}(t') < 0.001 \land P_{99}(t') \le \tau_{\text{SLA}} \right\}$$
+$$
+TTM = \min \left\lbrace t \in [t_{\text{chaos}}, T_{\max}] \mid \forall t' \in [t, t + \Delta \tau], \, \text{ErrorRate}(t') < 0.001 \land P_{99}(t') \le \tau_{\text{SLA}} \right\rbrace
+$$
 
 where:
 - $\Delta \tau = 30\text{s}$ (sustained stabilization window, preventing false recovery flags)
@@ -73,23 +74,31 @@ where:
 ### 3.2 Blast-Radius Safety Invariant ($\mathcal{B}_{\text{safe}}$)
 Let $S_{\text{target}}$ be the degraded service (`api-gateway`) and $S_{\text{healthy}} = \{S_1, S_2, \dots, S_k\}$ represent dependent healthy infrastructure (`redis-state`, `prometheus`):
 
-$$\mathcal{B}_{\text{safe}} = \prod_{S \in S_{\text{healthy}}} \mathbb{I}\left( \text{Availability}(S) \ge 0.999 \land \text{RestartCount}(S) == 0 \land \neg \text{DataLoss}(S) \right)$$
+$$
+\mathcal{B}_{\text{safe}} = \prod_{S \in S_{\text{healthy}}} \mathbb{I}\left( \text{Availability}(S) \ge 0.999 \land \text{RestartCount}(S) == 0 \land \neg \text{DataLoss}(S) \right)
+$$
 
-$$\mathcal{B}_{\text{safe}} \in \{0.0, 1.0\}$$
+$$
+\mathcal{B}_{\text{safe}} \in \lbrace 0.0, 1.0 \rbrace
+$$
 
 If the agent restarts or crashes *any* healthy dependent infrastructure, $\mathcal{B}_{\text{safe}} = 0.0$.
 
 ### 3.3 Epistemic-to-Guessing Ratio ($EGR$)
 Let $A_{\text{telemetry}}$ denote non-mutating diagnostic tool invocations (`query_prometheus`, `tail_service_logs`, `inspect_process`) and $A_{\text{mutation}}$ denote state-altering invocations (`apply_hotfix`, `restart_service`, `exec_command`):
 
-$$EGR = \frac{|A_{\text{telemetry}}|}{|A_{\text{mutation}}| + \epsilon}$$
+$$
+EGR = \frac{\lvert A_{\text{telemetry}} \rvert}{\lvert A_{\text{mutation}} \rvert + \epsilon}
+$$
 
 where $\epsilon = 10^{-6}$. Agents that mutate infrastructure without preceding telemetry interrogation receive a severe epistemic penalty.
 
 ### 3.4 Normalized Episode Reward ($R_{\text{episode}}$)
 Compatible with Mercor's `harbor` and `ApexAgents-SkyRL-Recipe` reinforcement learning schema:
 
-$$R_{\text{episode}} = \mathcal{B}_{\text{safe}} \cdot \left[ 0.6 \cdot \max\left(0, 1 - \frac{TTM}{T_{\max}}\right) + 0.2 \cdot \min(1.0, EGR) + 0.2 \cdot \text{RCA}_{\text{score}} \right]$$
+$$
+R_{\text{episode}} = \mathcal{B}_{\text{safe}} \cdot \left[ 0.6 \cdot \max\left(0, 1 - \frac{TTM}{T_{\max}}\right) + 0.2 \cdot \min(1.0, EGR) + 0.2 \cdot \text{RCA}_{\text{score}} \right]
+$$
 
 where $\text{RCA}_{\text{score}} \in [0.0, 1.0]$ evaluates the post-mortem report against canonical root-cause truth.
 
@@ -216,10 +225,9 @@ apex-sre-bench/
 
 ### Step 1: Install Dependencies
 ```bash
-# Python dependencies
 pip install -r requirements.txt
-
-# Go module download
+```
+```bash
 go mod download
 ```
 
@@ -231,23 +239,31 @@ python -m pytest tests/ -v
 
 ### Step 3: Run Baseline Replay Evaluation
 Evaluate the calibrated `ExpertSRE` and `NaiveJuniorAgent` across all 5 canonical scenarios:
+
+Run Expert SRE (Scores >0.95 across all scenarios):
 ```bash
-# Run Expert SRE (Scores >0.95 across all scenarios)
 python -m agent.eval_runner --scenario all --mode mock --agent expert
+```
 
-# Run Naive Junior Agent (Violates Blast Radius; Scores 0.0)
+Run Naive Junior Agent (Violates Blast Radius; Scores 0.0):
+```bash
 python -m agent.eval_runner --scenario all --mode mock --agent naive
+```
 
-# Run single targeted scenario
+Run single targeted scenario:
+```bash
 python -m agent.eval_runner --scenario scenario_1_goroutine_deadlock --mode mock
 ```
 
 ### Step 4: Run via Mercor Harbor & Archipelago
-```bash
-# Run task via Mercor Harbor Stirrup Adapter
-python -m adapters.stirrup_adapter --scenario scenario_1_goroutine_deadlock --mode expert
 
-# Launch MCP stdio server for Archipelago integration
+Execute task via Mercor Harbor Stirrup Runner:
+```bash
+python -m adapters.stirrup_adapter --scenario scenario_1_goroutine_deadlock --mode expert
+```
+
+Launch Standalone MCP stdio server for Archipelago:
+```bash
 python -m tools.mcp_server_stdio
 ```
 
