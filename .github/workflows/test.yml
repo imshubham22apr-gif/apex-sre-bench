@@ -44,3 +44,7 @@ jobs:
       - name: Run APEX Mock Replay Baseline
         run: |
           python -m agent.eval_runner --scenario all --mode mock --output results/ci_baseline_run.json
+
+      - name: Verify Mercor Harbor Stirrup Runner
+        run: |
+          python -m adapters.stirrup_adapter --scenario scenario_1_goroutine_deadlock --mode expert

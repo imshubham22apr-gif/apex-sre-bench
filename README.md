@@ -164,6 +164,11 @@ apex-sre-bench/
 ├── go.mod                              # Go module definition
 ├── requirements.txt                    # Python benchmark dependencies
 ├── README.md                           # Research paper-grade documentation
+├── PROJECT.md                           # Mercor Intelligence Architecture & Antigravity Guide
+├── GEMINI.md                            # Antigravity Context & Non-blocking Operational Directives
+├── adapters/
+│   ├── __init__.py
+│   └── stirrup_adapter.py              # Mercor Harbor runner adapter (--host, --port, --task_id)
 ├── services/
 │   └── gateway/
 │       ├── main.go                     # Target Go service (pprof, Prometheus vectors)
@@ -178,7 +183,8 @@ apex-sre-bench/
 │   └── scenarios.py                    # 5 canonical distributed failure specs
 ├── tools/
 │   ├── __init__.py
-│   └── sre_tools.py                    # MCP-compliant SRE tools & audit trail
+│   ├── sre_tools.py                    # MCP-compliant SRE tools & audit trail
+│   └── mcp_server_stdio.py             # Standalone stdio MCP JSON-RPC 2.0 server with truncation
 ├── evaluator/
 │   ├── __init__.py
 │   ├── metrics.py                      # Exact mathematical formulas (TTM, B_safe, EGR)
@@ -195,7 +201,8 @@ apex-sre-bench/
     ├── __init__.py
     ├── test_chaos_injection.py         # Telemetry spike verification
     ├── test_verifier.py                # Mathematical invariant test suite
-    └── test_mock_replay.py             # Agent calibration validation
+    ├── test_mock_replay.py             # Agent calibration validation
+    └── test_harbor_adapter.py          # Mercor MCP stdio & Harbor Stirrup verification
 ```
 
 ---
@@ -235,7 +242,16 @@ python -m agent.eval_runner --scenario all --mode mock --agent naive
 python -m agent.eval_runner --scenario scenario_1_goroutine_deadlock --mode mock
 ```
 
-### Step 4: (Optional) Launch Live Docker Environment
+### Step 4: Run via Mercor Harbor & Archipelago
+```bash
+# Run task via Mercor Harbor Stirrup Adapter
+python -m adapters.stirrup_adapter --scenario scenario_1_goroutine_deadlock --mode expert
+
+# Launch MCP stdio server for Archipelago integration
+python -m tools.mcp_server_stdio
+```
+
+### Step 5: (Optional) Launch Live Docker Environment
 To run with live containerized services:
 ```bash
 docker compose up -d --build
