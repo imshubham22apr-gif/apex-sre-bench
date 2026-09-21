@@ -52,6 +52,14 @@ class MCPServerStdio:
         """Returns MCP tool definitions."""
         return [
             {
+                "name": "get_incident_alert",
+                "description": "Retrieve the triggering incident alert payload from Alertmanager/PagerDuty (alertname, severity, initial symptoms).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
                 "name": "query_prometheus",
                 "description": "Execute a PromQL query against Prometheus to retrieve time-series telemetry vectors.",
                 "inputSchema": {
@@ -219,7 +227,9 @@ class MCPServerStdio:
 
     def _dispatch_tool(self, name: str, args: Dict[str, Any]) -> Any:
         """Dispatches call to underlying SREToolEnvironment."""
-        if name == "query_prometheus":
+        if name == "get_incident_alert":
+            return self.tool_env.get_incident_alert()
+        elif name == "query_prometheus":
             return self.tool_env.query_prometheus(
                 promql=args["promql"],
                 time_window_seconds=args.get("time_window_seconds", 60),

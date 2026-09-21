@@ -210,3 +210,21 @@ class LoadGenerator:
 
             self.record_sample(sample)
             time.sleep(sleep_interval)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Synthetic traffic generator for APEX-SRE-Bench")
+    parser.add_argument("--url", default="http://localhost:8080", help="Base URL of target service")
+    parser.add_argument("--rps", type=int, default=50, help="Target requests per second")
+    parser.add_argument("--duration", type=int, default=10, help="Duration in seconds to run")
+    args = parser.parse_args()
+
+    gen = LoadGenerator(base_url=args.url, target_rps=args.rps, enable_simulation_fallback=True)
+    logger.info("Starting live traffic against %s at %d RPS for %ds...", args.url, args.rps, args.duration)
+    gen.start()
+    try:
+        time.sleep(args.duration)
+    finally:
+        gen.stop()
+    print(f"Recorded {gen.total_requests()} requests. Error rate: {gen.current_error_rate():.2%}, P99: {gen.current_p99_latency()*1000:.1f}ms")

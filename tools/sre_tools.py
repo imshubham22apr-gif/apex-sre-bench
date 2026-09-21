@@ -38,7 +38,7 @@ class SREToolEnvironment:
     Maintains tool audit log for deterministic evaluation oracle.
     """
 
-    TELEMETRY_TOOLS = {"query_prometheus", "tail_service_logs", "inspect_process"}
+    TELEMETRY_TOOLS = {"query_prometheus", "tail_service_logs", "inspect_process", "get_incident_alert"}
     MUTATION_TOOLS = {"apply_hotfix", "restart_service", "apply_runtime_config", "exec_command"}
 
     _docker_checked: bool = False
@@ -53,6 +53,7 @@ class SREToolEnvironment:
         prometheus_url: str = "http://localhost:9090",
         gateway_url: str = "http://localhost:8080",
         simulated_context: Optional[Dict[str, Any]] = None,
+        alert_payload: Optional[Any] = None,
     ) -> None:
         self.prometheus_url = prometheus_url.rstrip("/")
         self.gateway_url = gateway_url.rstrip("/")
@@ -65,6 +66,26 @@ class SREToolEnvironment:
         self.simulated_context: Dict[str, Any] = simulated_context or {}
         self.post_mortem_artifact: Optional[Dict[str, str]] = None
         self.structured_rca_artifact: Optional[Dict[str, str]] = None
+
+        default_alert = {
+            "alert_name": "TargetServiceSLABreach",
+            "severity": "critical",
+            "firing_since": "2026-09-21T12:00:00Z",
+            "service": "api-gateway",
+            "summary": "Gateway P99 latency SLA breached (>250ms)",
+            "description": "Synthetic canary detected sustained SLA violations and elevated error rate.",
+            "labels": {"alertstate": "firing", "severity": "critical", "service": "api-gateway"},
+        }
+        if alert_payload is not None:
+            if hasattr(alert_payload, "to_dict"):
+                self.alert_payload = alert_payload.to_dict()
+            else:
+                self.alert_payload = dict(alert_payload)
+        elif "alert_payload" in self.simulated_context:
+            ctx_alert = self.simulated_context["alert_payload"]
+            self.alert_payload = ctx_alert.to_dict() if hasattr(ctx_alert, "to_dict") else dict(ctx_alert)
+        else:
+            self.alert_payload = default_alert
 
     @classmethod
     def _is_docker_available(cls) -> bool:
@@ -199,6 +220,24 @@ class SREToolEnvironment:
 
         self.record_call("inspect_process", {"service_name": service_name}, data)
         return data
+
+    def get_incident_alert(self) -> Dict[str, Any]:
+        """
+        Retrieves the triggering incident alert payload (Prometheus Alertmanager / PagerDuty event).
+        MCP tool: read-only telemetry.
+        """
+        alert = self.alert_payload or self.simulated_context.get("alert_payload", {})
+        if not alert:
+            scenario_id = self.simulated_context.get("scenario_id", "")
+            if scenario_id:
+                from chaos.scenarios import get_scenario_by_id
+                sc = get_scenario_by_id(scenario_id)
+                if sc and hasattr(sc, "alert_payload"):
+                    alert = sc.alert_payload.to_dict()
+                    self.alert_payload = alert
+
+        self.record_call("get_incident_alert", {}, alert)
+        return alert
 
     def apply_hotfix(self, service_name: str, filepath: str, patch_content: str) -> Dict[str, Any]:
         """

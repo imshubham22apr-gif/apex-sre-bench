@@ -55,10 +55,12 @@ class StirrupHarborAdapter:
         active_agent = agent or ExpertSRE()
         logger.info("Executing Harbor task '%s' using agent '%s'", self.task_id, active_agent.name)
 
+        alert_dict = scenario.alert_payload.to_dict() if hasattr(scenario, "alert_payload") else {}
         tool_env = SREToolEnvironment(
             simulated_context={
                 "scenario_id": scenario_id,
                 "remediation_applied": False,
+                "alert_payload": alert_dict,
             }
         )
 

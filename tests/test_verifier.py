@@ -154,6 +154,21 @@ class TestVerifierMetrics:
         assert mutation_calls == 1
         assert tool_env.simulated_context.get("remediation_applied") is True
 
+    def test_incident_alert_telemetry_accounting(self) -> None:
+        scenario = get_scenario_by_id("scenario_1_goroutine_deadlock")
+        assert scenario is not None
+        tool_env = SREToolEnvironment(alert_payload=scenario.alert_payload)
+        
+        alert = tool_env.get_incident_alert()
+        assert alert["alert_name"] == "GoroutineLeakAndP99LatencyBreach"
+        assert alert["severity"].lower() == "critical"
+        assert alert["service"] == "api-gateway"
+        
+        # Verify it was logged as a telemetry call
+        telemetry_calls = sum(1 for c in tool_env.call_history if c.is_telemetry)
+        assert telemetry_calls == 1
+        assert tool_env.call_history[0].tool_name == "get_incident_alert"
+
     def test_oracle_full_episode_evaluation(self) -> None:
         oracle = DeterministicStateOracle(t_max=600.0, delta_tau=30.0)
         tool_env = SREToolEnvironment()

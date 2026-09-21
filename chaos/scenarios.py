@@ -7,7 +7,22 @@ and mathematically verifiable remediation baselines.
 """
 
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+
+@dataclass(frozen=True)
+class IncidentAlert:
+    """Realistic Prometheus Alertmanager / PagerDuty firing incident payload."""
+    alert_name: str
+    severity: str
+    firing_since: str
+    service: str
+    summary: str
+    description: str
+    labels: Dict[str, str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -39,6 +54,7 @@ class ChaosScenario:
     ground_truth_rca: str
     remediation_patch: str
     structured_rca: StructuredRCASpec
+    alert_payload: IncidentAlert
 
 
 SCENARIO_1_GOROUTINE_DEADLOCK = ChaosScenario(
@@ -79,6 +95,15 @@ SCENARIO_1_GOROUTINE_DEADLOCK = ChaosScenario(
         faulty_component="checkout_worker",
         contributing_factor="unbuffered_channel_circular_lock",
         remediation_applied="buffered_channels_with_timeout",
+    ),
+    alert_payload=IncidentAlert(
+        alert_name="GoroutineLeakAndP99LatencyBreach",
+        severity="CRITICAL",
+        firing_since="2026-09-21T14:30:00Z",
+        service="api-gateway",
+        summary="API Gateway /checkout latency spiked > 3000ms. Active goroutines anomaly (>10,000).",
+        description="Worker channels saturated with circular locks in checkout handler. Ingress requests hanging.",
+        labels={"alertname": "GoroutineLeakAndP99LatencyBreach", "severity": "critical", "service": "api-gateway", "env": "production"},
     ),
 )
 
@@ -122,6 +147,15 @@ SCENARIO_2_CASCADING_RETRY_STORM = ChaosScenario(
         contributing_factor="unjittered_aggressive_retries",
         remediation_applied="exponential_backoff_with_full_jitter",
     ),
+    alert_payload=IncidentAlert(
+        alert_name="Cascading5xxErrorSurgeAndTrafficAmplification",
+        severity="CRITICAL",
+        firing_since="2026-09-21T14:30:00Z",
+        service="api-gateway",
+        summary="Downstream payment timeouts triggering immediate retry amplification. 5xx rate > 40%.",
+        description="Internal payment client firing unjittered immediate retries causing internal request volume to quadruple.",
+        labels={"alertname": "Cascading5xxErrorSurgeAndTrafficAmplification", "severity": "critical", "service": "api-gateway", "env": "production"},
+    ),
 )
 
 SCENARIO_3_CONNECTION_POOL_EXHAUSTION = ChaosScenario(
@@ -162,6 +196,15 @@ SCENARIO_3_CONNECTION_POOL_EXHAUSTION = ChaosScenario(
         faulty_component="db_connection_pool",
         contributing_factor="unreleased_handles_on_error_path",
         remediation_applied="guaranteed_defer_release",
+    ),
+    alert_payload=IncidentAlert(
+        alert_name="DatabaseConnectionPoolDepleted",
+        severity="CRITICAL",
+        firing_since="2026-09-21T14:30:00Z",
+        service="api-gateway",
+        summary="Database connection pool saturated (50/50). Acquisition timeout flatlining at 5000ms.",
+        description="Transaction error paths failing to release database handles. Gateway throwing HTTP 504 Timeouts.",
+        labels={"alertname": "DatabaseConnectionPoolDepleted", "severity": "critical", "service": "api-gateway", "env": "production"},
     ),
 )
 
@@ -204,6 +247,15 @@ SCENARIO_4_EBPF_SOCKET_PACKET_DROP = ChaosScenario(
         contributing_factor="inter_service_packet_drop_tcp_retransmit",
         remediation_applied="tcp_timeout_tuning_and_reroute",
     ),
+    alert_payload=IncidentAlert(
+        alert_name="BridgeSocketPacketLossAndTCPRetransmitHigh",
+        severity="WARNING",
+        firing_since="2026-09-21T14:30:00Z",
+        service="api-gateway",
+        summary="Inter-service bridge socket reporting 25% packet drop. Elevated TCP retransmissions.",
+        description="Kernel bridge socket dropping SYN/ACK frames. Error logs silent but P99 latency degraded >1200ms.",
+        labels={"alertname": "BridgeSocketPacketLossAndTCPRetransmitHigh", "severity": "warning", "service": "api-gateway", "env": "production"},
+    ),
 )
 
 SCENARIO_5_REDIS_LOCK_SPLIT_BRAIN = ChaosScenario(
@@ -245,6 +297,15 @@ SCENARIO_5_REDIS_LOCK_SPLIT_BRAIN = ChaosScenario(
         faulty_component="distributed_lock_manager",
         contributing_factor="premature_lease_expiration_vs_processing_latency",
         remediation_applied="lease_extension_heartbeat_or_fencing_token",
+    ),
+    alert_payload=IncidentAlert(
+        alert_name="DistributedLockContentionAndSplitBrain",
+        severity="CRITICAL",
+        firing_since="2026-09-21T14:30:00Z",
+        service="api-gateway",
+        summary="High rate of Redis lock contention and idempotency collisions (HTTP 409).",
+        description="Distributed lock TTL expiring prematurely before transaction completes. Multiple workers writing concurrently.",
+        labels={"alertname": "DistributedLockContentionAndSplitBrain", "severity": "critical", "service": "api-gateway", "env": "production"},
     ),
 )
 

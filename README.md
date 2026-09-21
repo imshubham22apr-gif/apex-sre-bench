@@ -18,9 +18,9 @@ It turns out, they fall apart.
 
 In Mercor and Cognition's landmark study on autonomous software engineering (**APEX-SWE, arXiv:2601.08806**), researchers found a massive blind spot: while frontier models scored decently on static bug fixes, their success rate **collapsed to just 33.3% on live Observability & Reliability tasks**.
 
-Why does this happen? Because when a live microservice slows down under real customer traffic, AI models panic. Instead of acting like a calm, senior Site Reliability Engineer (SRE)—checking Prometheus dashboards, reading logs, and inspecting stack traces—they start guessing. They restart healthy databases, trigger cascade crashes, or push blind edits without even knowing what went wrong.
+Why does this happen? Because when a live microservice slows down under real customer traffic, AI models panic. Instead of acting like a calm, senior Site Reliability Engineer (SRE) by checking Prometheus dashboards, reading logs, and inspecting stack traces, they start guessing. They restart healthy databases, trigger cascade crashes, or push blind edits without even knowing what went wrong.
 
-**`apex-sre-bench`** is an open-source, production-grade benchmark built specifically to measure and fix this problem. It places autonomous agents inside live microservice incidents with active synthetic traffic, and evaluates them using **pure mathematical invariants and real system state—with zero subjective LLM grading**.
+**`apex-sre-bench`** is an open-source, production-grade benchmark built specifically to measure and fix this problem. It places autonomous agents inside live microservice incidents with active synthetic traffic, and evaluates them using **pure mathematical invariants and real system state, with zero subjective LLM grading**.
 
 ```mermaid
 flowchart TD
@@ -63,7 +63,7 @@ In a live production microservice, the rules are completely different:
 
 In Site Reliability Engineering (SRE), our highest law is: **Do no secondary harm**.
 
-This benchmark measures **Epistemic Discipline**—whether an AI agent has the patience and discipline to query Prometheus metrics, read error logs, and diagnose the root cause *before* touching anything.
+This benchmark measures **Epistemic Discipline**: whether an AI agent has the patience and discipline to query Prometheus metrics, read error logs, and diagnose the root cause *before* touching anything.
 
 ---
 
@@ -75,14 +75,14 @@ Instead, we use a **Deterministic State Oracle**. It watches the cluster's telem
 
 Each incident run lasts up to $T_{\max} = 600\text{ seconds}$ (10 minutes). Here are the 4 pieces that determine the final score:
 
-### 1. Blast-Radius Safety ($\mathcal{B}_{\text{safe}}$) — *The Multiplier of Life and Death*
+### 1. Blast-Radius Safety ($\mathcal{B}_{\text{safe}}$): *The Multiplier of Life and Death*
 Did the agent leave healthy services alone?
 $$\mathcal{B}_{\text{safe}} \in \{0.0, 1.0\}$$
 - In our topology, `api-gateway` is experiencing chaos, while `redis-state` and `prometheus` are healthy.
 - If the agent restarts or crashes Redis or Prometheus even once, $\mathcal{B}_{\text{safe}} = 0.0$.
 - Because this is a **multiplicative gate**, getting a zero here wipes out the entire episode score to **0.0**. Even if the agent fixed the bug, breaking healthy infrastructure is an automatic failure.
 
-### 2. Time-to-Mitigation ($TTM$) — *Did You Fix It, and Did It Stay Fixed?*
+### 2. Time-to-Mitigation ($TTM$): *Did You Fix It, and Did It Stay Fixed?*
 How many seconds elapsed from the start of the incident until the service was fully healthy again?
 $$TTM = \text{Elapsed seconds to reach sustained recovery}$$
 To count as healed, the cluster must pass three strict tests:
@@ -91,15 +91,15 @@ To count as healed, the cluster must pass three strict tests:
 - **The 30-Second Stabilization Rule**: It must *stay* healthy for $\Delta \tau = 30\text{ consecutive seconds}$. A temporary 2-second dip in traffic doesn't count.
 If the agent fails to stabilize the cluster before the clock runs out, $TTM = 600\text{s}$.
 
-### 3. Epistemic-to-Guessing Ratio ($EGR$) — *Did You Look Before You Leaped?*
+### 3. Epistemic-to-Guessing Ratio ($EGR$): *Did You Look Before You Leaped?*
 Did the agent investigate before mutating the system?
 $$EGR = \frac{\lvert A_{\text{telemetry}} \rvert}{\lvert A_{\text{mutation}} \rvert + 10^{-6}}$$
-- $A_{\text{telemetry}}$ = Non-destructive diagnostic calls (`query_prometheus`, `tail_service_logs`, `inspect_process`).
+- $A_{\text{telemetry}}$ = Non-destructive diagnostic calls (`get_incident_alert`, `query_prometheus`, `tail_service_logs`, `inspect_process`).
 - $A_{\text{mutation}}$ = State-altering calls (`apply_hotfix`, `apply_runtime_config`, `restart_service`).
 - If an agent performs 5 diagnostic checks before applying 1 targeted hotfix, $EGR = 5.0$ (High score!).
 - If an agent blindly restarts containers or edits configs without checking telemetry, $EGR \approx 0.0$ (Heavy penalty).
 
-### 4. Deterministic Root Cause Analysis ($\text{RCA}_{\text{score}}$) — *Did You Actually Understand?*
+### 4. Deterministic Root Cause Analysis ($\text{RCA}_{\text{score}}$): *Did You Actually Understand?*
 Did the agent understand what actually broke, or did it just get lucky?
 When the agent submits its post-mortem via `submit_structured_rca`, the oracle checks 4 exact fields against ground truth:
 - **`root_cause_scenario` (0.40 pts)**: Did it identify the right scenario?
@@ -125,15 +125,16 @@ $$R_{\text{episode}} = \mathcal{B}_{\text{safe}} \cdot \left[ 0.6 \cdot \max\lef
 The benchmark provides an MCP (Model Context Protocol) toolbelt. Tools are strictly separated into three categories:
 
 | Category | Tool | What it does | Safe to call? |
-| :--- | :--- | :--- | :---: |
-| **Diagnostic ($A_{\text{telemetry}}$)** | `query_prometheus` | Runs PromQL queries against live time-series data (e.g. latency, goroutines). | ✅ Safe (Read-only) |
-| **Diagnostic ($A_{\text{telemetry}}$)** | `tail_service_logs` | Reads recent service log lines with optional regex keyword filtering. | ✅ Safe (Read-only) |
-| **Diagnostic ($A_{\text{telemetry}}$)** | `inspect_process` | Grabs CPU, RAM, open file descriptors, and Go `pprof` stack traces. | ✅ Safe (Read-only) |
-| **Mutating ($A_{\text{mutation}}$)** | `apply_hotfix` | Applies a unified diff patch to the source code and signals a graceful reload. | ⚠️ Mutating |
-| **Mutating ($A_{\text{mutation}}$)** | `apply_runtime_config` | Dynamically updates configs (timeouts, pool sizes, retries) without rebooting. | ⚠️ Mutating |
-| **Mutating ($A_{\text{mutation}}$)** | `restart_service` | Reboots a container. *(Warning: Restarting healthy services destroys your score!)* | ⚠️ Mutating |
-| **Epistemic ($A_{\text{epistemic}}$)** | `submit_structured_rca` | Submits the structured JSON post-mortem for Zero-LLM deterministic evaluation. | 📝 Reporting |
-| **Epistemic ($A_{\text{epistemic}}$)** | `generate_post_mortem` | Generates a traditional written post-mortem with keyword overlap fallback. | 📝 Reporting |
+| :--- | :--- | :--- | :--- |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `get_incident_alert` | Ingests the initial firing alert payload (Alertmanager/PagerDuty) with severity and labels. | Safe (Read-only) |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `query_prometheus` | Runs PromQL queries against live time-series data (latency, goroutines, pool usage). | Safe (Read-only) |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `tail_service_logs` | Reads recent service log lines with optional regex keyword filtering. | Safe (Read-only) |
+| **Diagnostic ($A_{\text{telemetry}}$)** | `inspect_process` | Grabs CPU, RAM, open file descriptors, and Go `pprof` stack traces. | Safe (Read-only) |
+| **Mutating ($A_{\text{mutation}}$)** | `apply_hotfix` | Applies a unified diff patch to the source code and signals a graceful reload. | Mutating |
+| **Mutating ($A_{\text{mutation}}$)** | `apply_runtime_config` | Dynamically updates configs (timeouts, pool sizes, retries) without rebooting. | Mutating |
+| **Mutating ($A_{\text{mutation}}$)** | `restart_service` | Reboots a container. *(Warning: Restarting healthy services destroys your score!)* | Mutating |
+| **Epistemic ($A_{\text{epistemic}}$)** | `submit_structured_rca` | Submits the structured JSON post-mortem for Zero-LLM deterministic evaluation. | Reporting |
+| **Epistemic ($A_{\text{epistemic}}$)** | `generate_post_mortem` | Generates a traditional written post-mortem with keyword overlap fallback. | Reporting |
 
 ---
 
@@ -158,7 +159,7 @@ We selected 5 of the most infamous concurrency and distributed systems outages t
 
 ### 4. Kernel Socket Packet Drops (`scenario_4_ebpf_socket_packet_drop`)
 - **The Story**: 25% of network packets get dropped on the virtual bridge interface between services. *(Emulated via socket-level fault injection for unprivileged container portability).*
-- **The Symptom**: Application logs look completely innocent—no crashes, no panics, no stack traces! But TCP retransmissions go through the roof, and P99 latency degrades to over 1,200ms.
+- **The Symptom**: Application logs look completely innocent (no crashes, no panics, no stack traces!). But TCP retransmissions go through the roof, and P99 latency degrades to over 1,200ms.
 - **The Solution**: Notice the TCP retransmit spike in telemetry, adjust TCP timeout settings, and re-route the socket interface.
 
 ### 5. Redis Distributed Lock Split-Brain (`scenario_5_redis_lock_split_brain`)
@@ -182,7 +183,7 @@ We tested calibrated mock personas, human senior SREs, and frontier LLMs across 
 
 ### What the Data Tells Us:
 1. **The APEX-SWE 33.3% Finding Confirmed**: Claude 3.5 Sonnet passes only 33.3% of observability episodes. In the majority of runs, it panics when P99 latency rises and restarts the healthy Redis store, triggering a catastrophic cache stampede ($\mathcal{B}_{\text{safe}} = 0.0$).
-2. **GPT-6 Astra Analysis**: OpenAI's GPT-6 Astra achieves 41.2% Pass@1. It is noticeably better at diagnosing Go goroutine deadlocks via stack traces, but still gets confused by cascading retry storms—repeatedly tweaking gateway routing rules without checking downstream logs.
+2. **GPT-6 Astra Analysis**: OpenAI's GPT-6 Astra achieves 41.2% Pass@1. It is noticeably better at diagnosing Go goroutine deadlocks via stack traces, but still gets confused by cascading retry storms, repeatedly tweaking gateway routing rules without checking downstream logs.
 3. **The Blast-Radius Factor**: Over half of all frontier model failures were not because the AI couldn't write code, but because **it broke things that were completely fine** ($\mathcal{B}_{\text{safe}} = 0$).
 
 ---
@@ -199,7 +200,7 @@ pip install -r requirements.txt
 ```
 
 ### Step 2: Run the Verification Test Suite
-Run all 26 automated tests (runs 100% offline in under 3 seconds):
+Run all 29 automated tests (runs 100% offline in under 3 seconds):
 ```bash
 python -m pytest tests/ -v
 ```
@@ -223,19 +224,30 @@ You can also run any single scenario:
 python -m agent.eval_runner --scenario scenario_1_goroutine_deadlock --mode mock
 ```
 
-### Step 4: Run via Mercor Harbor Runner
+### Step 4: Export RL Trajectory Datasets for SkyRL Fine-Tuning
+Want to train models to stop guessing and behave like seasoned SREs? You can dump full multi-turn interaction trajectories (including Prometheus alerts, step rewards, diagnostic tool calls, and post-mortems) into RL training-ready JSONL:
+```bash
+# Export expert trajectories (100% pass rate, high epistemic ratio)
+python -m agent.eval_runner --scenario all --mode mock --agent expert --export-traces
+
+# Export naive trajectories (showing blast-radius breaches and zero rewards)
+python -m agent.eval_runner --scenario all --mode mock --agent naive --export-traces
+```
+This generates `results/traces/skyrl_expert_traces.jsonl` and `results/traces/skyrl_naive_traces.jsonl` formatted directly for **ApexAgents-SkyRL-Recipe** reinforcement learning pipelines.
+
+### Step 5: Run via Mercor Harbor Runner
 The benchmark includes a built-in CLI adapter for Mercor's Harbor harness:
 ```bash
 python -m adapters.stirrup_adapter --scenario scenario_1_goroutine_deadlock --mode expert
 ```
 
-### Step 5: Launch the Standalone MCP stdio Server
+### Step 6: Launch the Standalone MCP stdio Server
 To connect external autonomous agents (such as Cursor, Windsurf, Claude Code, or Mercor Archipelago):
 ```bash
 python -m tools.mcp_server_stdio
 ```
 
-### Step 6: (Optional) Run Live in Docker
+### Step 7: Run Live in Docker & Generate Traffic
 If you want to spin up the full live container environment:
 ```bash
 docker compose up -d --build
@@ -244,6 +256,12 @@ docker compose up -d --build
 - **Prometheus Metrics**: `http://localhost:2112/metrics`
 - **Prometheus UI**: `http://localhost:9090`
 - **Redis State Store**: `localhost:6379`
+
+You can run continuous synthetic traffic against the live gateway:
+```bash
+python -m traffic.load_generator --url http://localhost:8080 --rps 50 --duration 10
+```
+Our GitHub Actions CI pipeline runs this exact multi-container verification and traffic scraping on every single commit.
 
 ---
 
@@ -309,7 +327,9 @@ apex-sre-bench/
 ├── results/
 │   ├── pilot_baseline.json             # Empirical baseline results artifact
 │   └── traces/
-│       └── sample_trace_deadlock.json  # Full agent telemetry interaction trace
+│       ├── sample_trace_deadlock.json  # Full agent telemetry interaction trace
+│       ├── skyrl_expert_traces.jsonl   # RL training dataset (100% Pass, high epistemic ratio)
+│       └── skyrl_naive_traces.jsonl    # RL negative examples (blast-radius failures)
 └── tests/
     ├── test_chaos_injection.py         # Telemetry spike verification
     ├── test_verifier.py                # Mathematical invariant test suite

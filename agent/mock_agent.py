@@ -46,6 +46,10 @@ class ExpertSRE(BaseAgent):
 
         logger.info("[ExpertSRE] Initiating epistemic diagnosis for %s", scenario_id)
 
+        # Step 0: Ingest Incident Alert from Alertmanager / PagerDuty
+        alert = tools.get_incident_alert()
+        logger.info("[ExpertSRE] Ingested firing alert: %s (%s)", alert.get("alert_name"), alert.get("severity"))
+
         # Step 1: Telemetry Interrogation - Query Prometheus request rates & latencies
         tools.query_prometheus("http_request_duration_seconds", time_window_seconds=60)
         tools.query_prometheus("http_requests_total", time_window_seconds=60)

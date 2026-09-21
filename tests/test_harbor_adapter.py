@@ -38,6 +38,7 @@ class TestMercorHarnessIntegration:
         assert "generate_post_mortem" in tool_names
         assert "apply_runtime_config" in tool_names
         assert "submit_structured_rca" in tool_names
+        assert "get_incident_alert" in tool_names
 
     def test_mcp_server_runtime_config_and_rca_dispatch(self) -> None:
         server = MCPServerStdio()
@@ -80,6 +81,25 @@ class TestMercorHarnessIntegration:
         assert rca_resp["id"] == 11
         assert rca_resp["result"]["isError"] is False
         assert "accepted" in rca_resp["result"]["content"][0]["text"]
+
+    def test_mcp_server_get_incident_alert_dispatch(self) -> None:
+        server = MCPServerStdio()
+        alert_req = {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {
+                "name": "get_incident_alert",
+                "arguments": {},
+            },
+        }
+        alert_resp = server.handle_request(alert_req)
+        assert alert_resp["id"] == 12
+        assert alert_resp["result"]["isError"] is False
+        parsed_content = json.loads(alert_resp["result"]["content"][0]["text"])
+        assert "alert_name" in parsed_content
+        assert "severity" in parsed_content
+        assert "service" in parsed_content
 
     def test_mcp_server_tool_dispatch_and_execution(self) -> None:
         server = MCPServerStdio()

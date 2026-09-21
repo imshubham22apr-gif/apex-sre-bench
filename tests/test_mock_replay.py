@@ -42,3 +42,29 @@ class TestMockAgentReplay:
             # Naive agent restarted redis-state and prometheus
             assert r.details["blast_radius_restarts"]["redis-state"] >= 1
             assert r.details["blast_radius_restarts"]["prometheus"] >= 1
+
+    def test_trajectory_export_format_and_schema(self, tmp_path) -> None:
+        import json
+        runner = EvaluationRunner()
+        agent = ExpertSRE()
+        scenarios = [get_all_scenarios()[0]]
+
+        export_file = str(tmp_path / "test_traces.jsonl")
+        runner.run_suite(scenarios, agent, export_traces_path=export_file)
+
+        with open(export_file, "r", encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f if line.strip()]
+
+        assert len(lines) == 1
+        record = lines[0]
+        assert record["episode_id"].startswith("ep_scenario_1_goroutine_deadlock")
+        assert record["scenario_id"] == "scenario_1_goroutine_deadlock"
+        assert record["agent"] == "ExpertSRE"
+        assert "alert_payload" in record
+        assert record["alert_payload"]["alert_name"] == "GoroutineLeakAndP99LatencyBreach"
+        assert len(record["steps"]) > 0
+        assert record["final_reward"] >= 0.90
+
+        # Step 0 should be get_incident_alert
+        assert record["steps"][0]["action"]["tool"] == "get_incident_alert"
+        assert record["steps"][0]["is_telemetry"] is True
