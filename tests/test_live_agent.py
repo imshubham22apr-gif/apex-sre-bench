@@ -3,6 +3,7 @@ Test Suite: Live Frontier LLM Agent & MCP Tool Execution Loop.
 """
 
 import json
+from unittest.mock import MagicMock, patch
 import pytest
 
 from agent.live_agent import LiveLLMAgent
@@ -194,3 +195,132 @@ class TestLiveLLMAgent:
         assert "tail_service_logs" in tool_names
         assert "submit_structured_rca" in tool_names
         assert tool_env.structured_rca_artifact is not None
+
+    def test_gemini_multi_turn_mock_caller(self) -> None:
+        turn_counter = 0
+        scenario = get_scenario_by_id("scenario_1_goroutine_deadlock")
+        assert scenario is not None
+
+        def mock_caller(messages, tools):
+            nonlocal turn_counter
+            turn_counter += 1
+
+            if turn_counter == 1:
+                return {
+                    "message": {
+                        "content": "Gemini analyzing Prometheus goroutines...",
+                        "tool_calls": [
+                            {
+                                "id": "call_gemini_1",
+                                "function": {
+                                    "name": "query_prometheus",
+                                    "arguments": json.dumps({"promql": "active_goroutines"}),
+                                },
+                            }
+                        ],
+                    }
+                }
+            elif turn_counter == 2:
+                return {
+                    "message": {
+                        "content": "Deadlock found. Applying hotfix and concluding.",
+                        "tool_calls": [
+                            {
+                                "id": "call_gemini_2",
+                                "function": {
+                                    "name": "apply_hotfix",
+                                    "arguments": json.dumps({
+                                        "service_name": "api-gateway",
+                                        "filepath": "services/gateway/handlers.go",
+                                        "patch_content": "buffered channel fix",
+                                    }),
+                                },
+                            },
+                            {
+                                "id": "call_gemini_3",
+                                "function": {
+                                    "name": "submit_structured_rca",
+                                    "arguments": json.dumps(scenario.structured_rca.to_dict()),
+                                },
+                            },
+                            {
+                                "id": "call_gemini_4",
+                                "function": {
+                                    "name": "generate_post_mortem",
+                                    "arguments": json.dumps({
+                                        "incident_id": "INC-001",
+                                        "root_cause": "unbuffered channel circular lock",
+                                        "actions_taken": "buffered channels with timeout",
+                                    }),
+                                },
+                            },
+                        ],
+                    }
+                }
+            else:
+                return {"message": {"content": "Mitigated."}}
+
+        agent = LiveLLMAgent(model="gemini-2.5-flash", api_key="fake-gemini-key", caller_fn=mock_caller)
+        tool_env = SREToolEnvironment(alert_payload=scenario.alert_payload)
+
+        agent.solve_incident("scenario_1_goroutine_deadlock", tool_env)
+
+        tool_names = [c.tool_name for c in tool_env.call_history]
+        assert "get_incident_alert" in tool_names
+        assert "query_prometheus" in tool_names
+        assert "apply_hotfix" in tool_names
+        assert "submit_structured_rca" in tool_names
+        assert "generate_post_mortem" in tool_names
+        assert tool_env.structured_rca_artifact is not None
+        assert tool_env.post_mortem_artifact is not None
+
+    def test_gemini_provider_with_mock_patch(self) -> None:
+        """Verifies _call_llm_api endpoint request format and response decoding using mock patch."""
+        agent = LiveLLMAgent(model="gemini-2.5-flash", api_key="test-gemini-secret-key")
+        messages = [{"role": "user", "content": "Check cluster health"}]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_prometheus",
+                    "description": "Run PromQL query",
+                    "parameters": {"type": "object", "properties": {"promql": {"type": "string"}}},
+                },
+            }
+        ]
+
+        mock_response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "Querying prometheus metrics...",
+                        "tool_calls": [
+                            {
+                                "id": "call_mock_gemini",
+                                "function": {
+                                    "name": "query_prometheus",
+                                    "arguments": json.dumps({"promql": "up"}),
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(mock_response_payload).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            result = agent._call_llm_api(messages, tools)
+
+            assert mock_urlopen.called
+            req_arg = mock_urlopen.call_args[0][0]
+            assert "generativelanguage.googleapis.com" in req_arg.full_url
+            assert req_arg.headers.get("Authorization") == "Bearer test-gemini-secret-key"
+
+            msg = result.get("message", {})
+            assert msg.get("content") == "Querying prometheus metrics..."
+            assert len(msg.get("tool_calls", [])) == 1
+            assert msg["tool_calls"][0]["function"]["name"] == "query_prometheus"

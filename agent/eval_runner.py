@@ -257,7 +257,15 @@ def run_cli() -> None:
         print(f"\nWrote benchmark results artifact to {args.output}")
 
     if args.export_traces or args.export_skyrl:
-        export_path = args.export_skyrl or f"results/traces/skyrl_{args.agent.lower()}_traces.jsonl"
+        if args.export_skyrl:
+            export_path = args.export_skyrl
+        elif args.mode == "live" and "gemini" in (args.model or "").lower() and "deadlock" in args.scenario.lower():
+            export_path = "results/traces/gemini_live_deadlock.jsonl"
+        elif args.mode == "live":
+            safe_model = (args.model or "llm").replace("/", "_").replace(":", "_")
+            export_path = f"results/traces/{safe_model}_{args.scenario}_traces.jsonl"
+        else:
+            export_path = f"results/traces/skyrl_{args.agent.lower()}_traces.jsonl"
         os.makedirs(os.path.dirname(os.path.abspath(export_path)), exist_ok=True)
         with open(export_path, "w", encoding="utf-8") as f:
             for traj in runner.trajectories:

@@ -22,6 +22,27 @@ from tools.sre_tools import SREToolEnvironment
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("LiveLLMAgent")
 
+
+def load_env_file() -> None:
+    """Loads environment variables from .env file if present."""
+    env_file = os.path.join(os.getcwd(), ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+
+load_env_file()
+
 SYSTEM_PROMPT = """You are an elite Site Reliability Engineer (SRE) managing a live production incident in a Kubernetes microservice cluster.
 A customer-facing SLA breach is in progress.
 Your task is to safely diagnose the root cause and apply targeted remediation with ZERO secondary blast radius.
@@ -270,10 +291,14 @@ class LiveLLMAgent(BaseAgent):
             return self.caller_fn(messages, tools)
 
         if not self.resolved_api_key:
+            key_name = (
+                "GEMINI_API_KEY"
+                if self.provider == "gemini"
+                else ("ANTHROPIC_API_KEY" if self.provider == "anthropic" else "OPENAI_API_KEY")
+            )
             raise ValueError(
                 f"No API key configured for live model '{self.model}'. "
-                f"Please export OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY, "
-                f"or pass '--mode mock' to run the calibrated simulation baseline."
+                f"Please export {key_name}, or pass '--mode mock' to run the calibrated simulation baseline."
             )
 
         payload = {
@@ -283,29 +308,62 @@ class LiveLLMAgent(BaseAgent):
             "temperature": self.temperature,
         }
 
-        req_data = json.dumps(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.resolved_api_key}",
             "User-Agent": "APEX-SRE-Bench/1.0",
         }
 
-        req = urllib.request.Request(self.endpoint_url, data=req_data, headers=headers, method="POST")
+        max_retries = 3
+        current_model = self.model
 
-        try:
-            with urllib.request.urlopen(req, timeout=60.0) as resp:
-                resp_json = json.loads(resp.read().decode("utf-8"))
-                choices = resp_json.get("choices", [])
-                if not choices:
-                    return {"message": {"content": "Error: Empty choices returned by LLM."}}
-                return choices[0]
-        except urllib.error.HTTPError as ex:
-            error_body = ex.read().decode("utf-8")
-            logger.error("LLM API HTTP Error %d: %s", ex.code, error_body)
-            raise RuntimeError(f"LLM API Error ({ex.code}): {error_body}") from ex
-        except Exception as ex:
-            logger.error("LLM API Network Error: %s", ex)
-            raise RuntimeError(f"LLM API Connection Error: {str(ex)}") from ex
+        for attempt in range(max_retries):
+            payload["model"] = current_model
+            req_data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(self.endpoint_url, data=req_data, headers=headers, method="POST")
+
+            try:
+                with urllib.request.urlopen(req, timeout=60.0) as resp:
+                    resp_json = json.loads(resp.read().decode("utf-8"))
+                    choices = resp_json.get("choices", [])
+                    if not choices:
+                        return {"message": {"content": "Error: Empty choices returned by LLM."}}
+                    self.model = current_model
+                    return choices[0]
+            except urllib.error.HTTPError as ex:
+                error_body = ex.read().decode("utf-8")
+                # If a Gemini model name returns 404 (e.g. gemini-2.5-pro before public GA), fall back to active gemini-2.5-flash
+                if ex.code == 404 and self.provider == "gemini" and current_model != "gemini-2.5-flash":
+                    logger.warning(
+                        "Gemini model '%s' returned 404 Not Found. Automatically falling back to active 'gemini-2.5-flash'...",
+                        current_model,
+                    )
+                    current_model = "gemini-2.5-flash"
+                    continue
+
+                # Handle transient 503 / 429 spikes with backoff and alternate alias
+                if ex.code in (429, 503) and attempt < max_retries - 1:
+                    sleep_time = 2.0 * (attempt + 1)
+                    logger.warning(
+                        "LLM API returned HTTP %d. Retrying in %.1fs (attempt %d/%d)...",
+                        ex.code,
+                        sleep_time,
+                        attempt + 1,
+                        max_retries,
+                    )
+                    time.sleep(sleep_time)
+                    if self.provider == "gemini" and attempt >= 1:
+                        current_model = "gemini-flash-latest"
+                    continue
+
+                logger.error("LLM API HTTP Error %d: %s", ex.code, error_body)
+                raise RuntimeError(f"LLM API Error ({ex.code}): {error_body}") from ex
+            except Exception as ex:
+                if attempt < max_retries - 1:
+                    time.sleep(2.0)
+                    continue
+                logger.error("LLM API Network Error: %s", ex)
+                raise RuntimeError(f"LLM API Connection Error: {str(ex)}") from ex
 
     def _call_anthropic_api(
         self,
